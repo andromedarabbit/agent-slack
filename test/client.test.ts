@@ -63,8 +63,15 @@ describe("SlackApiClient browser multipart transport", () => {
 describe("SlackApiClient.forWorkspace", () => {
   const browserAuth = {
     auth_type: "browser",
-    xoxc_token: "xoxc-test",
-    xoxd_cookie: "d-test",
+    xoxc_token: "xoxc-caller",
+    xoxd_cookie: "d-caller",
+  } as const;
+  // Distinct from the caller's credentials so a regression reusing this.auth instead of
+  // the stored workspace's auth cannot pass.
+  const storedAuth = {
+    auth_type: "browser",
+    xoxc_token: "xoxc-org",
+    xoxd_cookie: "d-org",
   } as const;
   const originalSlackToken = process.env.SLACK_TOKEN;
 
@@ -81,7 +88,7 @@ describe("SlackApiClient.forWorkspace", () => {
     delete process.env.SLACK_TOKEN;
     const spy = spyOn(store, "resolveWorkspaceForUrl").mockResolvedValue({
       workspace_url: "https://acme.enterprise.slack.com",
-      auth: browserAuth,
+      auth: storedAuth,
     });
     const fetchMock = mock(async () => Response.json({ ok: true }));
     globalThis.fetch = fetchMock as never;
@@ -96,6 +103,12 @@ describe("SlackApiClient.forWorkspace", () => {
     expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toBe(
       "https://acme.enterprise.slack.com/api/auth.test",
     );
+    const request = fetchMock.mock.calls[0] as unknown as [
+      string,
+      { body: FormData; headers: Record<string, string> },
+    ];
+    expect(request[1].body.get("token")).toBe("xoxc-org");
+    expect(request[1].headers.Cookie).toContain("d-org");
   });
 
   test("returns null when the workspace is not stored", async () => {

@@ -196,12 +196,19 @@ async function searchPeopleByEmail(
     if (!(err instanceof Error) || !err.message.includes("team_is_restricted")) {
       throw err;
     }
-    const info = await client.api("team.info", {});
-    const team = isRecord(info.team) ? info.team : null;
-    const domain = team ? getString(team.enterprise_domain) : undefined;
-    const orgClient = domain
-      ? await client.forWorkspace(`https://${domain}.enterprise.slack.com`)
-      : null;
+    let orgClient: SlackApiClient | null = null;
+    try {
+      const info = await client.api("team.info", {});
+      const team = isRecord(info.team) ? info.team : null;
+      const domain = team ? getString(team.enterprise_domain) : undefined;
+      orgClient = domain
+        ? await client.forWorkspace(`https://${domain}.enterprise.slack.com`)
+        : null;
+    } catch {
+      // A recovery failure (team.info, URL, credential store) says nothing about the email;
+      // rethrow the original error so resolution degrades to the users.list scan.
+      throw err;
+    }
     if (!orgClient) {
       throw err;
     }

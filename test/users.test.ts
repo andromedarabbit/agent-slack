@@ -150,6 +150,15 @@ describe("resolveUserId", () => {
     forWorkspace: () => Promise<unknown>;
   }[] = [
     {
+      name: "team.info itself fails",
+      teamInfo: () => {
+        throw new Error("ratelimited");
+      },
+      forWorkspace: async () => {
+        throw new Error("forWorkspace should not be called");
+      },
+    },
+    {
       name: "team.info has no enterprise_domain",
       teamInfo: () => ({ ok: true, team: { id: "T1" } }),
       forWorkspace: async () => {
@@ -323,6 +332,28 @@ describe("resolveUserId", () => {
     };
     expect(await resolveUserId(client as never, "alice@example.com")).toBe("U09LIST");
   });
+
+  test.each(["not_allowed_token_type", "unknown_method"])(
+    "falls back to users.list when search.modules itself is rejected with %s",
+    async (code) => {
+      const calls: string[] = [];
+      const client = {
+        api: async (method: string) => {
+          calls.push(method);
+          if (method === "users.lookupByEmail") {
+            throw new Error("not_allowed_token_type");
+          }
+          if (method === "search.modules") {
+            throw new Error(code);
+          }
+          expect(method).toBe("users.list");
+          return usersListFallback(calls);
+        },
+      };
+      expect(await resolveUserId(client as never, "alice@example.com")).toBe("U09LIST");
+      expect(calls.at(-1)).toBe("users.list");
+    },
+  );
 
   test("tries search.modules when lookupByEmail succeeds without a user id", async () => {
     const client = {
