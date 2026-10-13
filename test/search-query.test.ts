@@ -28,4 +28,16 @@ describe("W-prefixed user IDs in search", () => {
 
     expect(await resolveUserId(client as never, "W12345678")).toBe("W12345678");
   });
+
+  test("resolves an email user filter via users.lookupByEmail", async () => {
+    const client = {
+      api: async (method: string, params?: Record<string, unknown>) => {
+        expect(method).toBe("users.lookupByEmail");
+        expect(params).toEqual({ email: "alice@example.com" });
+        return { ok: true, user: { id: "U10EMAIL" } };
+      },
+    };
+
+    expect(await resolveUserId(client as never, "alice@example.com")).toBe("U10EMAIL");
+  });
 });

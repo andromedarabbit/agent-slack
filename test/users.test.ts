@@ -74,4 +74,66 @@ describe("resolveUserId", () => {
     };
     expect(await resolveUserId(client as never, "alice@example.com")).toBe("U04FALLBACK");
   });
+
+  test("resolves email via search.modules when lookupByEmail rejects the token", async () => {
+    const client = {
+      api: async (method: string, params?: Record<string, unknown>) => {
+        if (method === "users.lookupByEmail") {
+          throw new Error("not_allowed_token_type");
+        }
+        expect(method).toBe("search.modules");
+        expect(params).toEqual({ module: "people", query: "alice@example.com", count: 5 });
+        return { ok: true, items: [{ id: "U06SEARCH", profile: { email: "Alice@example.com" } }] };
+      },
+    };
+    expect(await resolveUserId(client as never, "alice@example.com")).toBe("U06SEARCH");
+  });
+
+  test("retries search.modules with the stored org workspace on team_is_restricted", async () => {
+    const workspaceUrls: string[] = [];
+    const client = {
+      api: async (method: string) => {
+        if (method === "team.info") {
+          return { ok: true, team: { id: "T1", enterprise_domain: "acme" } };
+        }
+        expect(method).not.toBe("users.list");
+        throw new Error(
+          method === "search.modules" ? "team_is_restricted" : "not_allowed_token_type",
+        );
+      },
+      forWorkspace: async (url: string) => {
+        workspaceUrls.push(url);
+        return {
+          api: async (method: string) => {
+            expect(method).toBe("search.modules");
+            return { ok: true, items: [{ id: "U07ORG", profile: { email: "alice@example.com" } }] };
+          },
+        };
+      },
+    };
+    expect(await resolveUserId(client as never, "alice@example.com")).toBe("U07ORG");
+    expect(workspaceUrls).toEqual(["https://acme.enterprise.slack.com"]);
+  });
+
+  test("ignores search.modules results whose email does not match exactly", async () => {
+    const client = {
+      api: async (method: string) => {
+        if (method === "users.lookupByEmail") {
+          throw new Error("not_allowed_token_type");
+        }
+        if (method === "search.modules") {
+          return {
+            ok: true,
+            items: [{ id: "U08OTHER", profile: { email: "alice.b@example.com" } }],
+          };
+        }
+        expect(method).toBe("users.list");
+        return {
+          ok: true,
+          members: [{ id: "U09LIST", name: "alice", profile: { email: "alice@example.com" } }],
+        };
+      },
+    };
+    expect(await resolveUserId(client as never, "alice@example.com")).toBe("U09LIST");
+  });
 });
