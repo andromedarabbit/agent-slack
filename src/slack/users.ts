@@ -111,7 +111,7 @@ export async function resolveUserId(client: SlackApiClient, input: string): Prom
     } catch {
       // Fall back to search.modules / users.list below.
     }
-    const bySearch = await searchUserIdByEmail(client, trimmed).catch(() => undefined);
+    const bySearch = await searchUserIdByEmail(client, trimmed);
     if (bySearch) {
       return bySearch;
     }
@@ -164,6 +164,29 @@ async function searchUserIdByEmail(
   client: SlackApiClient,
   email: string,
 ): Promise<string | undefined> {
+  try {
+    return await searchPeopleByEmail(client, email);
+  } catch (err) {
+    // Expected "this token/workspace cannot use search" errors fall through to the users.list scan;
+    // anything else (invalid_auth, rate limits, timeouts) is a real failure and must surface.
+    if (err instanceof Error && SEARCH_UNAVAILABLE_ERRORS.some((e) => err.message.includes(e))) {
+      return undefined;
+    }
+    throw err;
+  }
+}
+
+const SEARCH_UNAVAILABLE_ERRORS = [
+  "team_is_restricted",
+  "not_allowed_token_type",
+  "missing_scope",
+  "unknown_method",
+];
+
+async function searchPeopleByEmail(
+  client: SlackApiClient,
+  email: string,
+): Promise<string | undefined> {
   const search = (c: SlackApiClient) =>
     c.api("search.modules", { module: "people", query: email, count: 5 });
   let resp: Record<string, unknown>;
@@ -189,7 +212,10 @@ async function searchUserIdByEmail(
     .filter(isRecord)
     .find((u) => {
       const profile = isRecord(u.profile) ? u.profile : null;
-      return (profile ? getString(profile.email) : undefined)?.toLowerCase() === wanted;
+      return (
+        Boolean(getString(u.id)) &&
+        (profile ? getString(profile.email) : undefined)?.toLowerCase() === wanted
+      );
     });
   return found ? getString(found.id) : undefined;
 }

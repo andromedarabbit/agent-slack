@@ -40,4 +40,35 @@ describe("W-prefixed user IDs in search", () => {
 
     expect(await resolveUserId(client as never, "alice@example.com")).toBe("U10EMAIL");
   });
+
+  test("returns undefined for an email that no lookup path can resolve", async () => {
+    const client = {
+      api: async (method: string) => {
+        if (method === "users.lookupByEmail") {
+          throw new Error("not_allowed_token_type");
+        }
+        if (method === "search.modules") {
+          return { ok: true, items: [] };
+        }
+        expect(method).toBe("users.list");
+        return { ok: true, members: [] };
+      },
+    };
+
+    expect(await resolveUserId(client as never, "ghost@example.com")).toBeUndefined();
+  });
+
+  test("resolves an email filter via search.modules when lookupByEmail is rejected", async () => {
+    const client = {
+      api: async (method: string) => {
+        if (method === "users.lookupByEmail") {
+          throw new Error("not_allowed_token_type");
+        }
+        expect(method).toBe("search.modules");
+        return { ok: true, items: [{ id: "U17SEARCH", profile: { email: "alice@example.com" } }] };
+      },
+    };
+
+    expect(await resolveUserId(client as never, "alice@example.com")).toBe("U17SEARCH");
+  });
 });
